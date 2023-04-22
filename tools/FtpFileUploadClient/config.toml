@@ -1,0 +1,26 @@
+[server]
+runmode = "debug"
+#runmode = "release"
+
+# FTP
+[ftp]
+# ftp server 地址
+addr = "127.0.0.1:21"
+# 账号
+user = "ZMitspic"
+# 密码
+password = "ZMitspic"
+# ftp本地文件夹路径
+ftpPath = "E:/Baidu/handan/Cars"
+# 文件临存文件夹
+tmpPath = "E:/Baidu/handan/BaiduBackTmp/Cars"
+# 读文件线程数
+readThread = 1
+# ftp服务端文件夹路径
+ftpServerPath = "/Cars"
+# 上传临时文件后缀
+tmpSuffix = ".tmp"
+
+[log]
+# 保留多少天日志 0-保留全部日志, 不删除
+maxAge = 7

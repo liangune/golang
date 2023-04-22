@@ -1,0 +1,23 @@
+[server]
+runmode = "debug"
+port = 9010
+
+# 数据库
+[postgresql]
+username = "postgres"
+password = "gosuncn"
+host = "192.168.33.231"
+port = 5432
+dbname = "vcloud_zhenjiang"
+
+[kafka]
+brokers = "192.168.74.232:9092,192.168.74.232:9093,192.168.74.232:9094"
+topic = "opsPlatformHeartbeat"
+
+[deviceSource]
+fileName = "device_source.xlsx"
+sheet = "设备列表"
+
+# 报表
+[report]
+reportDir = "./docs"
