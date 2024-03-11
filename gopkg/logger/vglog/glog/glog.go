@@ -21,9 +21,10 @@
 // Basic examples:
 //
 //	glog.Info("Prepare to repel boarders")
-//KeyLogger
-//	glog.Fatalf("Initialization failed: %s", err)
 //
+// KeyLogger
+//
+//	glog.Fatalf("Initialization failed: %s", err)
 //
 // Log output is buffered and written periodically using Flush. Programs
 // should call Flush before exiting to guarantee all log output is written.
@@ -300,8 +301,11 @@ It returns a buffer containing the formatted header and the user's file and line
 The depth specifies how many stack frames above lives the source line to be identified in the log message.
 
 Log lines have this form:
+
 	Lmmdd hh:mm:ss.uuuuuu threadid file:line] msg...
+
 where the fields are defined as follows:
+
 	L                A single character, representing the log level (eg 'I' for INFO)
 	mm               The month (zero padded; ie May is '05')
 	dd               The day (zero padded)
@@ -464,6 +468,8 @@ func (l *LoggingT) output(s Severity, buf *buffer, file string, line int, alsoTo
 			l.file[noticeLog].Write(data)
 		case accessLog:
 			l.file[accessLog].Write(data)
+		case traceLog:
+			l.file[traceLog].Write(data)
 		case interfaceAverageDurationLog:
 			l.file[interfaceAverageDurationLog].Write(data)
 		}
@@ -584,6 +590,7 @@ func (l *LoggingT) createFiles(sev Severity) error {
 		if err := sb.RotateFile(now); err != nil {
 			return err
 		}
+
 		l.file[s] = sb
 	}
 	return nil
@@ -971,11 +978,15 @@ func (l *Logger) Exitf(format string, args ...interface{}) {
 	l.l.printf(fatalLog, format, args...)
 }
 
-//===========
+// ===========
 // AccessDepth acts as Access but uses depth to determine which call frame to log.
 // AccessDepth(0, "msg") is the same as Access("msg").
 func (l *Logger) AccessDepth(depth int, args ...interface{}) {
 	l.l.printDepth(accessLog, depth, args...)
+}
+
+func (l *Logger) TraceDepth(depth int, args ...interface{}) {
+	l.l.printDepth(traceLog, depth, args...)
 }
 
 func (l *Logger) NoticeDepth(depth int, args ...interface{}) {

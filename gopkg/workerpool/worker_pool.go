@@ -10,10 +10,10 @@ type WorkerPool struct {
 	closeOnce  sync.Once
 }
 
-func NewWorkerPool(name string, maxWorkers int, maxTaskCount int) *WorkerPool {
+func NewWorkerPool(name string, maxWorkers int, maxTaskCount int, f NewHandleFun) *WorkerPool {
 	p := &WorkerPool{
 		name:       name,
-		Dispatcher: NewDispatcher(name, maxWorkers, maxTaskCount),
+		Dispatcher: NewDispatcher(name, maxWorkers, maxTaskCount, f),
 	}
 
 	return p
@@ -23,8 +23,12 @@ func (p *WorkerPool) Start() {
 	p.Dispatcher.Run()
 }
 
-func (p *WorkerPool) AddTask(task Task) {
+func (p *WorkerPool) AddTask(task TaskInterface) {
 	p.Dispatcher.AddTask(task)
+}
+
+func (p *WorkerPool) Submit(task TaskInterface) {
+	p.Dispatcher.Submit(task)
 }
 
 func (p *WorkerPool) Close() {
@@ -35,4 +39,8 @@ func (p *WorkerPool) Close() {
 
 func (p *WorkerPool) SetNewHandleFun(f NewHandleFun) {
 	p.Dispatcher.SetNewHandleFun(f)
+}
+
+func (p *WorkerPool) GetTaskCount() int {
+	return len(p.Dispatcher.taskChan)
 }

@@ -10,36 +10,36 @@ import (
 	"time"
 )
 
-func GetKafkaAddress(zkAdress string, chrootPath string) (string, error) {
-	zkConn, _, err := zk.Connect(strings.Split(zkAdress, ","), 10*time.Second)
+func GetKafkaAddress(zkAddress string, chrootPath string) (string, error) {
+	zkConn, _, err := zk.Connect(strings.Split(zkAddress, ","), 10*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("zookeeper connect is failed, %v", err)
 	}
 	defer zkConn.Close()
 
-	ids, _, err := zkConn.Children(combineKakfaPath(chrootPath, "/brokers/ids"))
+	ids, _, err := zkConn.Children(combineKafkaPath(chrootPath, "/brokers/ids"))
 	if err != nil {
 		return "", fmt.Errorf("zookeeper conn get get brokers ids failed, %v", err)
 	}
-	kakfaaddress := make([]string, len(ids))
-	zkkafka := Kafka{}
+	brokers := make([]string, len(ids))
+	broker := Broker{}
 	for i, id := range ids {
-		result, _, err := zkConn.Get(combineKakfaPath(chrootPath, "/brokers/ids/", id))
+		result, _, err := zkConn.Get(combineKafkaPath(chrootPath, "/brokers/ids/", id))
 		if err != nil {
 			return "", fmt.Errorf("zookeeper conn get brokers id[%d] info failed, %v", id, err)
 		}
-		err = json.Unmarshal(result, &zkkafka)
+		err = json.Unmarshal(result, &broker)
 		if err != nil {
 			return "", fmt.Errorf("json unmarshal str[%s] to struct fail, %v", string(result), err)
 		}
-		kakfaaddress[i] = fmt.Sprintf("%s:%d", zkkafka.Host, zkkafka.Port)
+		brokers[i] = fmt.Sprintf("%s:%d", broker.Host, broker.Port)
 	}
 
-	adress := strings.Join(kakfaaddress, ",")
-	return adress, nil
+	address := strings.Join(brokers, ",")
+	return address, nil
 }
 
-func combineKakfaPath(chrootPath string, path ...string) string {
+func combineKafkaPath(chrootPath string, path ...string) string {
 	if chrootPath == "" {
 		return fpath.Join(path...)
 	}
@@ -52,31 +52,31 @@ func combineKakfaPath(chrootPath string, path ...string) string {
 	return fpath.Join(result...)
 }
 
-func GetKafkaBrokers(zkAdress string, chrootPath string) (map[int]*KakfkaBroker, error) {
-	zkConn, _, err := zk.Connect(strings.Split(zkAdress, ","), 30*time.Second)
+func GetKafkaBrokers(zkAddress string, chrootPath string) (map[int]*Broker, error) {
+	zkConn, _, err := zk.Connect(strings.Split(zkAddress, ","), 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("zookeeper connect is failed, %v", err)
 	}
 	defer zkConn.Close()
 
-	KafkaBrokers := make(map[int]*KakfkaBroker, 0)
-	ids, _, err := zkConn.Children(combineKakfaPath(chrootPath, "/brokers/ids"))
+	brokers := make(map[int]*Broker, 0)
+	ids, _, err := zkConn.Children(combineKafkaPath(chrootPath, "/brokers/ids"))
 	if err != nil {
 		return nil, fmt.Errorf("zookeeper conn get brokers ids failed, %v", err)
 	}
 	for _, id := range ids {
-		broker, _, err := zkConn.Get(combineKakfaPath(chrootPath, "/brokers/ids", id))
+		broker, _, err := zkConn.Get(combineKafkaPath(chrootPath, "/brokers/ids", id))
 		if err != nil {
 			return nil, fmt.Errorf("zookeeper conn get brokers id[%d] info failed, %v", id, err)
 		}
-		v := &KakfkaBroker{}
+		v := &Broker{}
 		err = json.Unmarshal(broker, v)
 		if err != nil {
 			return nil, fmt.Errorf("json unmarshal str[%s] to struct fail, %v", string(broker), err)
 		}
-		intid, _ := strconv.Atoi(id)
-		v.Id = intid
-		KafkaBrokers[intid] = v
+		nId, _ := strconv.Atoi(id)
+		v.Id = nId
+		brokers[nId] = v
 	}
-	return KafkaBrokers, nil
+	return brokers, nil
 }

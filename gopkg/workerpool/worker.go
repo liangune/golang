@@ -12,17 +12,17 @@ type WorkerInterface interface {
 
 type Worker struct {
 	workerId       int32 //协程ID
-	taskChan       chan Task
-	workerChanPool chan chan Task
+	taskChan       chan TaskInterface
+	workerChanPool chan chan TaskInterface
 	closer, closed chan none
 	closeOnce      sync.Once
 	handle         HandleInterface
 }
 
-func NewWorker(workerChanPool chan chan Task, Id int32, f NewHandleFun) *Worker {
+func NewWorker(workerChanPool chan chan TaskInterface, Id int32, f NewHandleFun) *Worker {
 	worker := Worker{
 		workerId:       Id,
-		taskChan:       make(chan Task),
+		taskChan:       make(chan TaskInterface),
 		workerChanPool: workerChanPool,
 		closer:         make(chan none),
 		closed:         make(chan none),
@@ -40,6 +40,7 @@ func (w *Worker) Start() {
 			w.workerChanPool <- w.taskChan
 			select {
 			case task := <-w.taskChan:
+				task.SetWorkerId(w.workerId)
 				task.Execute(w)
 			case <-w.closer:
 				close(w.closed)

@@ -2,7 +2,7 @@ package asyncdb
 
 import (
 	"go/gopkg/logger/vglog"
-	"go/gopkg/queue"
+	"go/gopkg/utils/queue"
 	"gorm.io/gorm"
 	"time"
 )
@@ -13,7 +13,7 @@ type AsyncWriteDB struct {
 }
 
 const (
-	DEFAULT_SYNC_INTERVAL = time.Millisecond * 1000
+	DefaultInterval = time.Millisecond * 1000
 )
 
 func NewAsyncWriteDB(dbPool *gorm.DB) *AsyncWriteDB {
@@ -32,7 +32,7 @@ func (self *AsyncWriteDB) Run() {
 }
 
 func (self *AsyncWriteDB) OnWriteSqlEvent() {
-	ticker := time.NewTicker(DEFAULT_SYNC_INTERVAL)
+	ticker := time.NewTicker(DefaultInterval)
 	defer ticker.Stop()
 
 	for {

@@ -20,17 +20,20 @@ func DBPoolInit(dbConfig *DBConfig) (*DBPool, error) {
 	port := dbConfig.Port
 	dbname := dbConfig.Dbname
 	timeout := dbConfig.Timeout
+	if timeout <= 0 {
+		timeout = defaultConnectTimeout
+	}
 
 	var dsn string
 	switch dbConfig.DbType {
 	case MySQL:
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8&parseTime=True&loc=Local&timeout=%s", username, password, host, port, dbname, timeout)
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8&parseTime=True&loc=Local&timeout=%ds", username, password, host, port, dbname, timeout)
 	case PostgreSQL:
 		//sslmode是安全验证模式
 		if dbConfig.SSL == EnableSSL {
-			dsn = fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=require password=%s", host, port, username, dbname, password)
+			dsn = fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=require password=%s connect_timeout=%d", host, port, username, dbname, password, timeout)
 		} else {
-			dsn = fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=disable password=%s", host, port, username, dbname, password)
+			dsn = fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=disable password=%s connect_timeout=%d", host, port, username, dbname, password, timeout)
 		}
 	default:
 		return nil, errors.New("DBType is not support, please check db package")

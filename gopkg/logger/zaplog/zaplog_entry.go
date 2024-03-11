@@ -1,6 +1,6 @@
 package zaplog
 
-////////////////////////////
+// //////////////////////////
 // Debug uses fmt.Sprint to construct and log a message.
 func Debug(args ...interface{}) {
 	sugar.Debug(args...)

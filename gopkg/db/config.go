@@ -8,9 +8,10 @@ const (
 )
 
 const (
-	defaultMaxLifetime  = 5 * time.Minute
-	defaultMaxOpenConns = 100
-	defaultMaxIdleConns = 5
+	defaultMaxLifetime    = 5 * time.Minute
+	defaultMaxOpenConns   = 100
+	defaultMaxIdleConns   = 5
+	defaultConnectTimeout = 15
 )
 
 // support databases MySQL, PostgreSQL, SQLite, SQL Server
@@ -23,13 +24,13 @@ const (
 )
 
 type DBConfig struct {
-	Username     string        // 用户名
-	Password     string        // 密码
 	Host         string        // 数据库地址
 	Port         int           // 数据库的端口号
+	Username     string        // 用户名
+	Password     string        // 密码
 	Dbname       string        // 数据库名称
 	DbType       string        // 数据库类型
-	Timeout      string        // 超时时间
+	Timeout      int           // 超时时间, 单位秒
 	SSL          int           // 是否启用SSL连接
 	MaxOpenConns int           // 数据库连接池最大连接数
 	MaxIdleConns int           // 连接池最大允许的空闲连接数
@@ -44,7 +45,7 @@ DBConfig {
 	Port: 3306,
 	Dbname: "dbtest",
 	DbType: "postgres"
-	Timeout: "10s",
+	Timeout: 10,
 	SSL: 0,
 	MaxOpenConns: 100,
 	MaxIdleConns: 20,

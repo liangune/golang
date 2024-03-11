@@ -13,7 +13,6 @@ type RedisClient struct {
 }
 
 func NewRedisClient(opt *Options) (*RedisClient, error) {
-	opt.init()
 	c := RedisClient{
 		client:        nil,
 		clusterClient: nil,
@@ -23,8 +22,9 @@ func NewRedisClient(opt *Options) (*RedisClient, error) {
 	case IsNotCluster:
 		opt := redis.Options{
 			Addr:      fmt.Sprintf("%s:%s", opt.Host, opt.Port),
-			Password:  opt.PassWord,
+			Password:  opt.Password,
 			TLSConfig: nil,
+			PoolSize:  opt.PoolSize,
 		}
 		c.client = redis.NewClient(&opt)
 
@@ -35,8 +35,9 @@ func NewRedisClient(opt *Options) (*RedisClient, error) {
 		}
 		opt := redis.ClusterOptions{
 			Addrs:     addrs,
-			Password:  opt.PassWord,
+			Password:  opt.Password,
 			TLSConfig: nil,
+			PoolSize:  opt.PoolSize,
 		}
 		c.clusterClient = redis.NewClusterClient(&opt)
 		c.isCluster = true
@@ -75,4 +76,11 @@ func (c *RedisClient) Do(args ...interface{}) (reply interface{}, err error) {
 		return c.clusterClient.Do(args...).Result()
 	}
 	return c.client.Do(args...).Result()
+}
+
+func (c *RedisClient) Close() error {
+	if c.isCluster {
+		return c.clusterClient.Close()
+	}
+	return c.client.Close()
 }

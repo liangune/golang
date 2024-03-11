@@ -4,91 +4,172 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/bsm/sarama-cluster"
 	"strings"
-	"sync"
-	"time"
 )
 
-// 消费者回调函数
-type ConsumerCallback func(data []byte)
-
-func PartitionConsumer(address string, topic string, wg *sync.WaitGroup, callback ConsumerCallback) error {
-	consumer, err := sarama.NewConsumer(strings.Split(address, ","), nil)
-	if err != nil {
-		return err
-	}
-
-	partitionList, err := consumer.Partitions(topic)
-	if err != nil {
-		return err
-	}
-
-	for _, partition := range partitionList {
-		pc, err := consumer.ConsumePartition(topic, int32(partition), sarama.OffsetNewest)
-		if err != nil {
-			continue
-		}
-		defer pc.AsyncClose()
-
-		wg.Add(1)
-
-		go func(pc sarama.PartitionConsumer) {
-			defer wg.Done()
-			for msg := range pc.Messages() {
-				callback(msg.Value)
-			}
-		}(pc)
-	}
-
-	wg.Wait()
-
-	consumer.Close()
-
-	return nil
-}
-
 type GroupConsumer struct {
-	Consumer *cluster.Consumer
-	Callback ConsumerCallback
-	closer   chan struct{}
-	closed   chan struct{}
+	Consumer        *cluster.Consumer
+	Brokers         string
+	Topic           string
+	GroupID         string
+	ClientID        string
+	isAutoCommit    bool
+	AutoResetOffset string
 }
 
-func NewGroupConsumer(address string, topic string, groupID string, callback ConsumerCallback) (*GroupConsumer, error) {
-	config := cluster.NewConfig()
-	config.Consumer.Offsets.AutoCommit.Interval = 500 * time.Millisecond
-	config.Consumer.Offsets.AutoCommit.Enable = true
-	config.Consumer.Offsets.Initial = sarama.OffsetNewest
-	config.Consumer.Offsets.CommitInterval = 500 * time.Millisecond
-	consumer, err := cluster.NewConsumer(strings.Split(address, ","), groupID, []string{topic}, config)
+func NewGroupConsumer(cfg *ConsumerConfig) (*GroupConsumer, error) {
+	consumer, err := cluster.NewConsumer(strings.Split(cfg.Brokers, ","), cfg.GroupID, []string{cfg.Topic}, cfg.ClusterConfig)
 	if err != nil {
 		return nil, err
 	}
 
 	c := &GroupConsumer{
-		Consumer: consumer,
-		Callback: callback,
-		closer:   make(chan struct{}),
-		closed:   make(chan struct{}),
+		Consumer:     consumer,
+		Brokers:      cfg.Brokers,
+		Topic:        cfg.Topic,
+		isAutoCommit: cfg.ClusterConfig.Consumer.Offsets.AutoCommit.Enable,
 	}
 
-	go c.RecvMesssage()
+	if cfg.ClientID != "" {
+		cfg.Config.ClientID = cfg.ClientID
+	}
+
+	if cfg.AutoResetOffset == AutoResetOffsetEarliest {
+		cfg.ClusterConfig.Consumer.Offsets.Initial = sarama.OffsetOldest
+	} else {
+		cfg.ClusterConfig.Consumer.Offsets.Initial = sarama.OffsetNewest
+	}
+
 	return c, nil
 }
 
 func (c *GroupConsumer) Close() error {
-	close(c.closer)
-	<-c.closed
 	return c.Consumer.Close()
 }
 
-func (c *GroupConsumer) RecvMesssage() {
-	defer close(c.closed)
-	for {
-		select {
-		case msg := <-c.Consumer.Messages():
-			c.Callback(msg.Value)
-		case <-c.closer:
-			return
+func (c *GroupConsumer) Messages() <-chan *sarama.ConsumerMessage {
+	return c.Consumer.Messages()
+}
+
+func (c *GroupConsumer) Notifications() <-chan *cluster.Notification {
+	return c.Consumer.Notifications()
+}
+
+func (c *GroupConsumer) Errors() <-chan error {
+	return c.Consumer.Errors()
+}
+
+func (c *GroupConsumer) GetBrokers() string {
+	return c.Brokers
+}
+
+func (c *GroupConsumer) GetGroupId() string {
+	return c.GroupID
+}
+
+func (c *GroupConsumer) GetTopic() string {
+	return c.Topic
+}
+
+func (c *GroupConsumer) IsAutoCommit() bool {
+	return c.isAutoCommit
+}
+
+// PartitionConsumer can not set GroupID
+type PartitionConsumer struct {
+	Consumer             sarama.PartitionConsumer
+	ParentConsumer       sarama.Consumer
+	Brokers              string
+	Topic                string
+	GroupID              string
+	Partition            int32
+	ClientID             string
+	isAutoCommit         bool
+	AutoResetOffset      string
+	OffsetBeginTimestamp int64 // given time in seconds
+	OffsetEndTimestamp   int64 // given time in seconds
+}
+
+func NewPartitionConsumer(cfg *ConsumerConfig) (*PartitionConsumer, error) {
+	client, err := sarama.NewClient(strings.Split(cfg.Brokers, ","), cfg.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+	c, err := sarama.NewConsumer(strings.Split(cfg.Brokers, ","), cfg.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	var partitionConsumer sarama.PartitionConsumer
+	if cfg.AutoResetOffset == AutoResetOffsetTimestamp {
+		// given time (in milliseconds) on the topic/partition
+		nextOffset, err := client.GetOffset(cfg.Topic, cfg.Partition, cfg.OffsetBeginTimestamp*1000)
+		if err != nil {
+			return nil, err
+		}
+
+		partitionConsumer, err = c.ConsumePartition(cfg.Topic, cfg.Partition, nextOffset)
+		if err != nil {
+			return nil, err
+		}
+
+	} else if cfg.AutoResetOffset == AutoResetOffsetEarliest {
+		partitionConsumer, err = c.ConsumePartition(cfg.Topic, cfg.Partition, sarama.OffsetOldest)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		partitionConsumer, err = c.ConsumePartition(cfg.Topic, cfg.Partition, sarama.OffsetNewest)
+		if err != nil {
+			return nil, err
 		}
 	}
+
+	pcs := PartitionConsumer{
+		Consumer:             partitionConsumer,
+		ParentConsumer:       c,
+		Topic:                cfg.Topic,
+		Partition:            cfg.Partition,
+		GroupID:              "",
+		isAutoCommit:         cfg.Config.Consumer.Offsets.AutoCommit.Enable,
+		AutoResetOffset:      cfg.AutoResetOffset,
+		OffsetBeginTimestamp: cfg.OffsetBeginTimestamp,
+		OffsetEndTimestamp:   cfg.OffsetEndTimestamp,
+	}
+
+	if cfg.ClientID != "" {
+		cfg.Config.ClientID = cfg.ClientID
+	}
+
+	return &pcs, nil
+}
+
+func (pcs *PartitionConsumer) Messages() <-chan *sarama.ConsumerMessage {
+	return pcs.Consumer.Messages()
+}
+
+func (pcs *PartitionConsumer) Errors() <-chan *sarama.ConsumerError {
+	return pcs.Consumer.Errors()
+}
+
+func (pcs *PartitionConsumer) Close() error {
+	pcs.Consumer.AsyncClose()
+	err := pcs.ParentConsumer.Close()
+	return err
+}
+
+func (pcs *PartitionConsumer) GetBrokers() string {
+	return pcs.Brokers
+}
+
+func (pcs *PartitionConsumer) GetGroupId() string {
+	return pcs.GroupID
+}
+
+func (pcs *PartitionConsumer) GetTopic() string {
+	return pcs.Topic
+}
+
+func (pcs *PartitionConsumer) IsAutoCommit() bool {
+	return pcs.isAutoCommit
 }

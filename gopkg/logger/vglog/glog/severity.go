@@ -22,9 +22,10 @@ const (
 	warningLog
 	errorLog
 	accessLog
+	traceLog
 	interfaceAverageDurationLog
 	fatalLog
-	numSeverity = 8
+	numSeverity = 9
 )
 
 // These constants identify the log levels in order of increasing severity.
@@ -36,6 +37,7 @@ const (
 	WarnLog                     = warningLog
 	ErrorLog                    = errorLog
 	AccessLog                   = accessLog
+	TraceLog                    = traceLog
 	InterfaceAverageDurationLog = interfaceAverageDurationLog
 	FatalLog                    = fatalLog
 )
@@ -50,6 +52,7 @@ const (
 	SevWarn                     = "WARNING"
 	SevError                    = "ERROR"
 	SevAccess                   = "ACCESS"
+	SevTrace                    = "TRACE"
 	SevInterfaceAverageDuration = "AVERAGE"
 	SevFatal                    = "FATAL"
 )
@@ -61,6 +64,7 @@ var severityName = []string{
 	warningLog:                  SevWarn,
 	errorLog:                    SevError,
 	accessLog:                   SevAccess,
+	traceLog:                    SevTrace,
 	interfaceAverageDurationLog: SevInterfaceAverageDuration,
 	fatalLog:                    SevFatal,
 }

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"go/gopkg/logger/vglog/glog"
+	"io"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -17,6 +19,7 @@ const (
 	SevWarn                     = "warning"
 	SevError                    = "error"
 	SevAccess                   = "access"
+	SevTrace                    = "trace"
 	SevInterfaceAverageDuration = "average"
 	SevFatal                    = "fatal"
 )
@@ -25,24 +28,16 @@ type Severity = int32
 
 // 日记等级, 一般设置InfoLog
 const (
-	DebugLog                    Severity = 1 // debug
-	InfoLog                              = 2 // info
-	NoticeLog                            = 3 // notice
-	WarnLog                              = 4 // warning
-	ErrorLog                             = 5 // error
-	AccessLog                            = 6 // access
+	DebugLog                    Severity = 0 // debug
+	InfoLog                              = 1 // info
+	NoticeLog                            = 2 // notice
+	WarnLog                              = 3 // warning
+	ErrorLog                             = 4 // error
+	AccessLog                            = 5 // access
+	TraceLog                             = 6 // trace
 	InterfaceAverageDurationLog          = 7 // average
 	FatalLog                             = 8 // fatal
-)
-
-var (
-	//日志等级
-	allowLogLevel int32 = DebugLog
-	//日志文件权限
-	logFileMode os.FileMode
-	// 是否调试模式
-	vglogModeName = ReleaseMode
-	vglogModeCode = releaseCode
+	NumSeverity                          = 9
 )
 
 const (
@@ -59,7 +54,96 @@ const (
 	releaseCode
 )
 
-var logger *glog.Logger
+type Logger struct {
+	glogLogger *glog.Logger
+
+	//日志等级
+	allowLogLevel int32
+	//日志文件权限
+	logFileMode os.FileMode
+	// 是否调试模式
+	logModeName  string
+	logModeCode  int
+	fileIoWriter [NumSeverity]io.Writer
+
+	mutex MutexWrap
+}
+
+type MutexWrap struct {
+	lock     sync.Mutex
+	disabled bool
+}
+
+func (mw *MutexWrap) Lock() {
+	if !mw.disabled {
+		mw.lock.Lock()
+	}
+}
+
+func (mw *MutexWrap) Unlock() {
+	if !mw.disabled {
+		mw.lock.Unlock()
+	}
+}
+
+func (mw *MutexWrap) Disable() {
+	mw.disabled = true
+}
+
+func NewLogger() *Logger {
+	l := &Logger{
+		glogLogger:    nil,
+		allowLogLevel: DebugLog,
+		logFileMode:   defaultLogFileMode,
+		logModeName:   ReleaseMode,
+		logModeCode:   releaseCode,
+	}
+	return l
+}
+
+var DefaultLogger *Logger = NewLogger()
+
+func (l *Logger) SetLogFileMode(mode os.FileMode) {
+	l.logFileMode = mode
+	l.glogLogger.LogFileMode(l.logFileMode)
+}
+
+// SetLogMode sets vglog mode according to input string.
+func (l *Logger) SetLogMode(value string) {
+	switch value {
+	case DebugMode, "":
+		l.logModeCode = debugCode
+	case ReleaseMode:
+		l.logModeCode = releaseCode
+	default:
+		panic(any(fmt.Sprintf("vglog mode unknown: %s", value)))
+	}
+	if value == "" {
+		value = DebugMode
+	}
+	l.logModeName = value
+}
+
+// IsDebugging returns true if vglog is running in debug mode.
+// Use vglog.ReleaseMode to disable debug mode.
+func (l *Logger) IsDebugging() bool {
+	return l.logModeCode == debugCode
+}
+
+func (l *Logger) SetLogLevel(level int) {
+	atomic.StoreInt32(&l.allowLogLevel, int32(level))
+}
+
+func (l *Logger) GetLogLevel() int {
+	return int(atomic.LoadInt32(&l.allowLogLevel))
+}
+
+// SetOutput sets the logger output.
+func (l *Logger) SetOutput(logLevel Severity, output io.Writer) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.fileIoWriter[logLevel] = output
+}
 
 /*
 @brief  日记的初始化函数
@@ -68,14 +152,14 @@ var logger *glog.Logger
 @param  mode 日记的模式, 分为两种模式: debug和release, 设置为debug模式时, 控制台也是输出日记
 @return 无
 */
-func VglogInit(logdir string, logLevel Severity, mode string) {
-	allowLogLevel = logLevel
+func VglogInit(logDir string, logLevel Severity, mode string) {
+	DefaultLogger.allowLogLevel = logLevel
 
-	SetLogMode(mode)
+	DefaultLogger.SetLogMode(mode)
 
-	logger = glog.NewLogger().
-		AlsoToStderr(IsDebugging()).
-		LogDir(logdir).
+	DefaultLogger.glogLogger = glog.NewLogger().
+		AlsoToStderr(DefaultLogger.IsDebugging()).
+		LogDir(logDir).
 		EnableLogHeader(true).
 		EnableLogLink(false).
 		FlushInterval(time.Second).
@@ -90,7 +174,7 @@ func VglogInit(logdir string, logLevel Severity, mode string) {
 	go func() {
 		<-sigCh
 		os.Stdout.WriteString("\b\bflushing log ...\n")
-		logger.Flush()
+		DefaultLogger.glogLogger.Flush()
 		os.Stdout.WriteString("flush log done\n")
 		//signal.Reset(os.Interrupt)
 
@@ -123,23 +207,11 @@ func headerFormatFunc(buf *bytes.Buffer, l glog.Severity, ts time.Time, pid int,
 		fmt.Fprintf(buf, "[%s][%s:%d][notice] ", ts.Format("2006-01-02 15:04:05"), file, line)
 	case glog.AccessLog:
 		fmt.Fprintf(buf, "[%s] ", ts.Format("2006-01-02 15:04:05"))
+	case glog.TraceLog:
+		fmt.Fprintf(buf, "[%s] ", ts.Format("2006-01-02 15:04:05"))
 	case glog.InterfaceAverageDurationLog:
 		fmt.Fprintf(buf, "[%s] ", ts.Format("2006-01-02 15:04:05"))
 	}
-}
-
-func SetLogLevel(level int) {
-	atomic.StoreInt32(&allowLogLevel, int32(level))
-}
-
-func GetLogLevel() int {
-	return int(atomic.LoadInt32(&allowLogLevel))
-}
-
-// Unix log file permission bits
-func SetLogFileMode(mode os.FileMode) {
-	logFileMode = mode
-	logger.LogFileMode(logFileMode)
 }
 
 // log tag
@@ -158,6 +230,8 @@ func logTag(severityLevel string) string {
 		tag = SevAccess
 	case glog.SevNotice:
 		tag = SevNotice
+	case glog.SevTrace:
+		tag = SevTrace
 	case glog.SevFatal:
 		tag = SevFatal
 	case glog.SevInterfaceAverageDuration:
@@ -171,78 +245,71 @@ func logTag(severityLevel string) string {
 func fileNameFormatFunc(severityLevel string, ts time.Time) string {
 	var filename string
 	tag := logTag(severityLevel)
-	filename = fmt.Sprintf("%s.%04d-%02d-%02d.log",
-		tag,
-		ts.Year(),
-		ts.Month(),
-		ts.Day())
+	if severityLevel == glog.SevAccess || severityLevel == glog.SevNotice || severityLevel == glog.SevTrace {
+		filename = fmt.Sprintf("%s.%04d-%02d-%02d.%02d.log",
+			tag,
+			ts.Year(),
+			ts.Month(),
+			ts.Day(),
+			ts.Hour())
+	} else {
+		filename = fmt.Sprintf("%s.%04d-%02d-%02d.log",
+			tag,
+			ts.Year(),
+			ts.Month(),
+			ts.Day())
+	}
 	return filename
 }
 
-// SetLogMode sets vglog mode according to input string.
-func SetLogMode(value string) {
-	switch value {
-	case DebugMode, "":
-		vglogModeCode = debugCode
-	case ReleaseMode:
-		vglogModeCode = releaseCode
-	default:
-		panic(fmt.Sprintf("vglog mode unknown: %s", value))
-	}
-	if value == "" {
-		value = DebugMode
-	}
-	vglogModeName = value
-}
-
-// IsDebugging returns true if vglog is running in debug mode.
-// Use vglog.ReleaseMode to disable debug mode.
-func IsDebugging() bool {
-	return vglogModeCode == debugCode
-}
-
 func Debug(format string, args ...interface{}) {
-	if atomic.LoadInt32(&allowLogLevel) <= DebugLog {
-		logger.DebugDepth(1, fmt.Sprintf(format, args...))
+	if atomic.LoadInt32(&DefaultLogger.allowLogLevel) <= DebugLog {
+		DefaultLogger.glogLogger.DebugDepth(1, fmt.Sprintf(format, args...))
 	}
 }
 
 func Info(format string, args ...interface{}) {
-	if atomic.LoadInt32(&allowLogLevel) <= InfoLog {
-		logger.InfoDepth(1, fmt.Sprintf(format, args...))
+	if atomic.LoadInt32(&DefaultLogger.allowLogLevel) <= InfoLog {
+		DefaultLogger.glogLogger.InfoDepth(1, fmt.Sprintf(format, args...))
 	}
 }
 
 func Notice(format string, args ...interface{}) {
-	if atomic.LoadInt32(&allowLogLevel) <= NoticeLog {
-		logger.NoticeDepth(1, fmt.Sprintf(format, args...))
+	if atomic.LoadInt32(&DefaultLogger.allowLogLevel) <= NoticeLog {
+		DefaultLogger.glogLogger.NoticeDepth(1, fmt.Sprintf(format, args...))
 	}
 }
 
 func Warn(format string, args ...interface{}) {
-	if atomic.LoadInt32(&allowLogLevel) <= WarnLog {
-		logger.WarningDepth(1, fmt.Sprintf(format, args...))
+	if atomic.LoadInt32(&DefaultLogger.allowLogLevel) <= WarnLog {
+		DefaultLogger.glogLogger.WarningDepth(1, fmt.Sprintf(format, args...))
 	}
 }
 
 func Error(format string, args ...interface{}) {
-	if atomic.LoadInt32(&allowLogLevel) <= ErrorLog {
-		logger.ErrorDepth(1, fmt.Sprintf(format, args...))
+	if atomic.LoadInt32(&DefaultLogger.allowLogLevel) <= ErrorLog {
+		DefaultLogger.glogLogger.ErrorDepth(1, fmt.Sprintf(format, args...))
 	}
 }
 
 func Access(format string, args ...interface{}) {
-	if atomic.LoadInt32(&allowLogLevel) <= AccessLog {
-		logger.AccessDepth(1, fmt.Sprintf(format, args...))
+	if atomic.LoadInt32(&DefaultLogger.allowLogLevel) <= AccessLog {
+		DefaultLogger.glogLogger.AccessDepth(1, fmt.Sprintf(format, args...))
+	}
+}
+
+func Trace(format string, args ...interface{}) {
+	if atomic.LoadInt32(&DefaultLogger.allowLogLevel) <= TraceLog {
+		DefaultLogger.glogLogger.TraceDepth(1, fmt.Sprintf(format, args...))
 	}
 }
 
 func InterfaceAverageDuration(format string, args ...interface{}) {
-	if atomic.LoadInt32(&allowLogLevel) <= InterfaceAverageDurationLog {
-		logger.InterfaceAverageDurationDepth(1, fmt.Sprintf(format, args...))
+	if atomic.LoadInt32(&DefaultLogger.allowLogLevel) <= InterfaceAverageDurationLog {
+		DefaultLogger.glogLogger.InterfaceAverageDurationDepth(1, fmt.Sprintf(format, args...))
 	}
 }
 
 func FlushLog() {
-	logger.Flush()
+	DefaultLogger.glogLogger.Flush()
 }

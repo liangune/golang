@@ -17,7 +17,6 @@ var (
 	//Logger *zap.Logger
 )
 
-//
 type Config struct {
 	Format        int    //日志格式, 0:普通一行文件，1:json格式文件
 	Level         int    //0:debug,1:info,2:warn,3:error, 默认:1
@@ -51,6 +50,7 @@ func GetDefaultConfig() *Config {
 		CallerKey:     "LN",
 		MessageKey:    "Msg",
 		StacktraceKey: "Stacktrace",
+		Level:         1,
 	}
 }
 
@@ -63,7 +63,7 @@ func initFromCfgFile(cfg *Config) {
 	if len(os.Args) >= 2 {
 		configFilePath = os.Args[1]
 	} else {
-		configFilePath = "config.ini"
+		configFilePath = "logconfig.ini"
 	}
 
 	if c, err := goconfig.LoadConfigFile(configFilePath); err != nil {

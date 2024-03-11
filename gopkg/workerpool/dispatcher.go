@@ -11,13 +11,13 @@ type Dispatcher struct {
 	closer       chan none
 	closed       chan none
 	//endSignal      chan os.Signal
-	taskChan       chan Task
-	workerChanPool chan chan Task
+	taskChan       chan TaskInterface
+	workerChanPool chan chan TaskInterface
 	closeOnce      sync.Once
 	newHandleFun   NewHandleFun
 }
 
-func NewDispatcher(dispatcherId string, maxWorkers, maxTaskCount int) *Dispatcher {
+func NewDispatcher(dispatcherId string, maxWorkers, maxTaskCount int, f NewHandleFun) *Dispatcher {
 	//endSignal := make(chan os.Signal)
 	//signal.Notify(endSignal, syscall.SIGINT, syscall.SIGTERM)
 	return &Dispatcher{
@@ -26,9 +26,9 @@ func NewDispatcher(dispatcherId string, maxWorkers, maxTaskCount int) *Dispatche
 		closer:       make(chan none),
 		closed:       make(chan none),
 		//endSignal:      endSignal,
-		taskChan:       make(chan Task, maxTaskCount),
-		workerChanPool: make(chan chan Task, maxWorkers),
-		newHandleFun:   nil,
+		taskChan:       make(chan TaskInterface, maxTaskCount),
+		workerChanPool: make(chan chan TaskInterface, maxWorkers),
+		newHandleFun:   f,
 	}
 }
 
@@ -63,7 +63,11 @@ func (d *Dispatcher) Dispatch() {
 	}
 }
 
-func (d *Dispatcher) AddTask(task Task) {
+func (d *Dispatcher) AddTask(task TaskInterface) {
+	d.taskChan <- task
+}
+
+func (d *Dispatcher) Submit(task TaskInterface) {
 	d.taskChan <- task
 }
 

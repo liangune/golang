@@ -7,13 +7,13 @@ import (
 )
 
 /*
-	@brief kafka版本 1.0.0以上
-	@return map的key是groupID，value为consumer
+@brief kafka版本 1.0.0以上
+@return map的key是groupID，value为consumer
 */
-func GetConsumerGroups(kafkaAdress string) (map[string]string, error) {
+func GetConsumerGroups(brokers string) (map[string]string, error) {
 	cfg := sarama.NewConfig()
 	cfg.Version = sarama.V1_0_0_0
-	admin, err := sarama.NewClusterAdmin(strings.Split(kafkaAdress, ","), cfg)
+	admin, err := sarama.NewClusterAdmin(strings.Split(brokers, ","), cfg)
 	if err != nil {
 		return nil, fmt.Errorf("NewClusterAdmin error message: %s", err.Error())
 	}
@@ -27,49 +27,48 @@ func GetConsumerGroups(kafkaAdress string) (map[string]string, error) {
 	return groups, nil
 }
 
-type KafkaClient struct {
-	client sarama.Client
+type Client struct {
+	saramaClient sarama.Client
 }
 
-func NewKafkaClient(kafkaAdress string) (*KafkaClient, error) {
+func NewKafkaClient(brokers string) (*Client, error) {
 	cfg := sarama.NewConfig()
-	client, err := sarama.NewClient(strings.Split(kafkaAdress, ","), cfg)
+	client, err := sarama.NewClient(strings.Split(brokers, ","), cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return &KafkaClient{client: client}, nil
+	return &Client{saramaClient: client}, nil
 }
 
-func (c *KafkaClient) Close() {
-	c.client.Close()
+func (c *Client) Close() {
+	c.saramaClient.Close()
 }
 
-func (c *KafkaClient) GetTopicOffset(topic string) (*TopicOffset, error) {
-	partitions, _ := c.client.Partitions(topic)
-	ktopic := &TopicOffset{}
-	ktopic.Topic = topic
+func (c *Client) GetTopicOffset(topic string, time int64) (*TopicOffset, error) {
+	partitions, _ := c.saramaClient.Partitions(topic)
+	topicOffset := &TopicOffset{}
+	topicOffset.Topic = topic
 	for _, i := range partitions {
-		offset, err := c.client.GetOffset(topic, i, sarama.OffsetNewest)
+		offset, err := c.saramaClient.GetOffset(topic, i, sarama.OffsetNewest)
 		if err != nil {
-			// vglog.Error("kakfa client get newest offet error: %v", err)
 			continue
 		}
-		ktopic.Partitions = append(ktopic.Partitions, &PartitionOffset{PartitionID: int32(i), Offset: offset})
-		ktopic.Offset += offset
+		topicOffset.Partitions = append(topicOffset.Partitions, &PartitionOffset{PartitionID: int32(i), Offset: offset})
+		topicOffset.Offset += offset
 	}
 
-	return ktopic, nil
+	return topicOffset, nil
 }
 
-func (c *KafkaClient) GetTopicGroupOffset(group string, topic string) (*TopicGroupOffset, error) {
-	OffetMgr, err := sarama.NewOffsetManagerFromClient(group, c.client)
+func (c *Client) GetTopicGroupOffset(group string, topic string) (*TopicGroupOffset, error) {
+	OffetMgr, err := sarama.NewOffsetManagerFromClient(group, c.saramaClient)
 	if err != nil {
 		return nil, err
 	}
 	defer OffetMgr.Close()
 
-	partitions, err := c.client.Partitions(topic)
+	partitions, err := c.saramaClient.Partitions(topic)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +88,7 @@ func (c *KafkaClient) GetTopicGroupOffset(group string, topic string) (*TopicGro
 		partOff, _ := partOffMgr.NextOffset()
 
 		// 最新的offset
-		newestOff, err := c.client.GetOffset(topic, partID, sarama.OffsetNewest)
+		newestOff, err := c.saramaClient.GetOffset(topic, partID, sarama.OffsetNewest)
 		if err != nil {
 			continue
 		}
@@ -125,6 +124,10 @@ func (c *KafkaClient) GetTopicGroupOffset(group string, topic string) (*TopicGro
 	return topicPrometheus, nil
 }
 
-func (c *KafkaClient) GetTopic() ([]string, error) {
-	return c.client.Topics()
+func (c *Client) GetTopics() ([]string, error) {
+	return c.saramaClient.Topics()
+}
+
+func (c *Client) GetPartitions(topic string) ([]int32, error) {
+	return c.saramaClient.Partitions(topic)
 }

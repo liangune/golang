@@ -1,12 +1,7 @@
 package kafka
 
-type Kafka struct {
-	Port int
-	Host string
-}
-
 // {"listener_security_protocol_map":{"PLAINTEXT":"PLAINTEXT"},"endpoints":["PLAINTEXT://192.168.48.128:9092"],"jmx_port":-1,"host":"192.168.48.128","timestamp":"1595312023650","port":9092,"version":4}
-type KakfkaBroker struct {
+type Broker struct {
 	Id   int `json:",omitempty"`
 	Host string
 	Port int
